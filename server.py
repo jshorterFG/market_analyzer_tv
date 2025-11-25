@@ -93,7 +93,7 @@ def get_analysis_data(symbol: str, screener: str, exchange: str, interval: str) 
         analysis = handler.get_analysis()
         
         # Return raw data as dictionary
-        return {
+        result = {
             'open': analysis.indicators.get('open'),
             'close': analysis.indicators.get('close'),
             'high': analysis.indicators.get('high'),
@@ -105,8 +105,22 @@ def get_analysis_data(symbol: str, screener: str, exchange: str, interval: str) 
             'sma50': analysis.indicators.get('SMA50'),
             'sma200': analysis.indicators.get('SMA200'),
             'adx': analysis.indicators.get('ADX'),
+            'fi': analysis.indicators.get('FI'),
             'recommendation': analysis.summary.get('RECOMMENDATION'),
         }
+        
+        # Calculate Force Index if missing (FI = Price Change * Volume)
+        if result['fi'] is None:
+            close = result['close']
+            change = analysis.indicators.get('change')
+            volume = analysis.indicators.get('volume')
+            
+            if close and change is not None and volume:
+                # Change is usually percentage in TV analysis
+                price_change = close * change / 100
+                result['fi'] = price_change * volume
+                
+        return result
     except Exception as e:
         return {}
 

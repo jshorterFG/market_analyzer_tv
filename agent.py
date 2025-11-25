@@ -155,7 +155,7 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
         Trading signal with entry price, stop loss, and take profit levels, or no signal if SAR not aligned.
     """
     import time
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from server import get_analysis_data  # We'll need raw data, not formatted text
     
     # Map asset types to screeners
@@ -181,6 +181,9 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
         exchange = "FX_IDC"
     
     screener = screener_map.get(asset_type, "crypto")
+    
+    # Track analysis timing for rate limit estimation
+    start_time = datetime.now()
     
     # Timeframes to analyze
     timeframes = ["1m", "5m", "15m", "30m", "1h"]
@@ -270,6 +273,7 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
     low_15m = data_15m.get('low')
     close_15m = data_15m.get('close')
     psar_15m = data_15m.get('psar')
+    fi_15m = data_15m.get('fi')
     
     if high_15m is None or low_15m is None or close_15m is None:
         output += "❌ Cannot calculate stop loss/take profit - missing 15m data.\n"
@@ -278,18 +282,33 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
     # Calculate ATR-like range from 15m candle
     range_15m = high_15m - low_15m
     
+    # Force Index Analysis (15m)
+    fi_status = "N/A"
+    fi_bullish = False
+    fi_bearish = False
+    
+    if fi_15m is not None:
+        if fi_15m > 0:
+            fi_status = f"🟢 POSITIVE ({fi_15m:.4f})"
+            fi_bullish = True
+        else:
+            fi_status = f"🔴 NEGATIVE ({fi_15m:.4f})"
+            fi_bearish = True
+    
+    output += f"💪 15m Force Index: {fi_status}\n\n"
+    
     # Determine direction for recommendation
-    # Priority 1: All timeframes aligned + 1m candle confirms (STRONG SIGNAL)
+    # Priority 1: All timeframes aligned + 1m candle confirms + 15m FI confirms (STRONG SIGNAL)
     # Priority 2: 15m trend direction (POTENTIAL SETUP)
     
     is_strong_signal = False
     recommendation_type = "POTENTIAL SETUP (Watch Levels)"
     
-    if all_bullish and candle_bullish:
+    if all_bullish and candle_bullish and fi_bullish:
         direction = "BUY"
         is_strong_signal = True
         recommendation_type = "✅ TRADING SIGNAL: BUY"
-    elif all_bearish and candle_bearish:
+    elif all_bearish and candle_bearish and fi_bearish:
         direction = "SELL"
         is_strong_signal = True
         recommendation_type = "✅ TRADING SIGNAL: SELL"
@@ -368,6 +387,22 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
             output += "   Wait for confirmation before entering.\n"
             
     output += f"   Based on 15m timeframe: High={high_15m:.4f}, Low={low_15m:.4f}, Range={range_15m:.4f}\n"
+    
+    # Calculate rate limit information
+    end_time = datetime.now()
+    elapsed_time = (end_time - start_time).total_seconds()
+    
+    # We made 5 API calls with 2-second delays between them
+    # Recommend waiting ~2 minutes between analyses to avoid rate limits
+    api_calls_made = len(timeframes)
+    wait_time_seconds = 120  # 2 minutes recommended wait
+    next_analysis_time = end_time + timedelta(seconds=wait_time_seconds)
+    
+    output += f"\n⏱️ RATE LIMIT INFO:\n"
+    output += f"   Analysis completed in {elapsed_time:.1f} seconds\n"
+    output += f"   API calls made: {api_calls_made}\n"
+    output += f"   ⚠️ Wait until {next_analysis_time.strftime('%H:%M:%S')} (~{wait_time_seconds//60} minutes) before next analysis\n"
+    output += f"   Single timeframe requests can be made immediately.\n"
     
     return output
 
