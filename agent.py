@@ -90,6 +90,8 @@ def get_multi_timeframe_analysis(symbol: str, asset_type: str = "crypto", exchan
     elif asset_type == "index":
         index_exchanges = {"SPX": "CBOE", "DJI": "DJ", "IXIC": "NASDAQ"}
         exchange = index_exchanges.get(symbol, "CBOE")
+    elif asset_type == "forex" and exchange == "BINANCE":
+        exchange = "FX_IDC"
     elif asset_type == "commodity" and symbol == "XAUUSD":
         exchange = "FX_IDC"
     
@@ -173,6 +175,8 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
     elif asset_type == "index":
         index_exchanges = {"SPX": "CBOE", "DJI": "DJ", "IXIC": "NASDAQ"}
         exchange = index_exchanges.get(symbol, "CBOE")
+    elif asset_type == "forex" and exchange == "BINANCE":
+        exchange = "FX_IDC"
     elif asset_type == "commodity" and symbol == "XAUUSD":
         exchange = "FX_IDC"
     
