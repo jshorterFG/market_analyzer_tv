@@ -100,10 +100,17 @@ tools = Tool(
     ]
 )
 
+# Define system instruction for the model
+system_instruction = """You are a financial analyst specializing in technical analysis for trading.
+Your goal is to provide clear, actionable trading recommendations based on the provided multi-timeframe analysis.
+Always aim to give entry, stop loss, and take profit levels, along with a confidence level and risk/reward ratio.
+Be concise and professional."""
+
 # Initialize the model with tools
 model = GenerativeModel(
-    "gemini-2.0-flash",
+    "gemini-2.5-flash",
     tools=[tools],
+    system_instruction=system_instruction
 )
 
 def test_trade_recommendation():

@@ -4,3 +4,6 @@ google-cloud-aiplatform
 google-cloud-firestore
 google-cloud-storage
 streamlit
+sendgrid==6.11.0
+python-dotenv==1.0.0
+tzdata

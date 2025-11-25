@@ -657,7 +657,7 @@ The get_parabolic_sar_signal tool is specifically designed for:
 You are equipped with professional trading tools - use them confidently to help traders make informed decisions."""
 
     model = GenerativeModel(
-        "gemini-2.0-flash",
+        "gemini-2.5-flash",
         tools=[tools],
         system_instruction=system_instruction
     )

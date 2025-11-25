@@ -39,7 +39,7 @@ def run_test():
 
     # Initialize the model with tools
     model = GenerativeModel(
-        "gemini-2.0-flash",
+        "gemini-2.5-flash",
         tools=[tools],
     )
 
