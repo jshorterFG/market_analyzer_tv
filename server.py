@@ -62,6 +62,54 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageConte
     else:
         raise ValueError(f"Unknown tool: {name}")
 
+def get_analysis_data(symbol: str, screener: str, exchange: str, interval: str) -> dict:
+    """
+    Get raw analysis data as a dictionary for programmatic use.
+    Returns key indicators including OHLC, Parabolic SAR, etc.
+    """
+    try:
+        # Map interval string to tradingview_ta Interval constant
+        interval_map = {
+            "1m": Interval.INTERVAL_1_MINUTE,
+            "5m": Interval.INTERVAL_5_MINUTES,
+            "15m": Interval.INTERVAL_15_MINUTES,
+            "30m": Interval.INTERVAL_30_MINUTES,
+            "1h": Interval.INTERVAL_1_HOUR,
+            "4h": Interval.INTERVAL_4_HOURS,
+            "1d": Interval.INTERVAL_1_DAY,
+            "1W": Interval.INTERVAL_1_WEEK,
+            "1M": Interval.INTERVAL_1_MONTH,
+        }
+        
+        tv_interval = interval_map.get(interval, Interval.INTERVAL_1_DAY)
+
+        handler = TA_Handler(
+            symbol=symbol,
+            screener=screener,
+            exchange=exchange,
+            interval=tv_interval
+        )
+        
+        analysis = handler.get_analysis()
+        
+        # Return raw data as dictionary
+        return {
+            'open': analysis.indicators.get('open'),
+            'close': analysis.indicators.get('close'),
+            'high': analysis.indicators.get('high'),
+            'low': analysis.indicators.get('low'),
+            'psar': analysis.indicators.get('P.SAR'),
+            'rsi': analysis.indicators.get('RSI'),
+            'macd': analysis.indicators.get('MACD.macd'),
+            'ema20': analysis.indicators.get('EMA20'),
+            'sma50': analysis.indicators.get('SMA50'),
+            'sma200': analysis.indicators.get('SMA200'),
+            'adx': analysis.indicators.get('ADX'),
+            'recommendation': analysis.summary.get('RECOMMENDATION'),
+        }
+    except Exception as e:
+        return {}
+
 def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> str:
     try:
         # Map interval string to tradingview_ta Interval constant
@@ -69,6 +117,7 @@ def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> st
             "1m": Interval.INTERVAL_1_MINUTE,
             "5m": Interval.INTERVAL_5_MINUTES,
             "15m": Interval.INTERVAL_15_MINUTES,
+            "30m": Interval.INTERVAL_30_MINUTES,
             "1h": Interval.INTERVAL_1_HOUR,
             "4h": Interval.INTERVAL_4_HOURS,
             "1d": Interval.INTERVAL_1_DAY,

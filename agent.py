@@ -134,6 +134,239 @@ def get_multi_timeframe_analysis(symbol: str, asset_type: str = "crypto", exchan
     
     return output
 
+def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: str = "BINANCE") -> str:
+    """
+    Analyze Parabolic SAR across multiple timeframes (1m, 5m, 15m, 30m, 1h) to generate 
+    buy/sell signals with stop loss and take profit levels.
+    
+    This strategy:
+    1. Checks if ALL Parabolic SAR indicators across timeframes are aligned (all bullish or all bearish)
+    2. Uses the 1-minute candle direction to confirm the trade signal
+    3. Calculates stop loss and take profit based on the 15-minute timeframe
+    
+    Args:
+        symbol: The trading symbol (e.g., 'BTCUSDT', 'TSLA', 'SPX')
+        asset_type: Type of asset - 'crypto', 'stock', 'forex', 'index', or 'commodity'
+        exchange: The exchange (default varies by asset_type)
+    
+    Returns:
+        Trading signal with entry price, stop loss, and take profit levels, or no signal if SAR not aligned.
+    """
+    import time
+    from datetime import datetime
+    from server import get_analysis_data  # We'll need raw data, not formatted text
+    
+    # Map asset types to screeners
+    screener_map = {
+        "crypto": "crypto",
+        "stock": "america",
+        "forex": "forex",
+        "index": "america",
+        "commodity": "cfd"
+    }
+    
+    # Set default exchanges
+    if asset_type == "crypto" and exchange == "BINANCE":
+        exchange = "BINANCE"
+    elif asset_type == "stock" and exchange == "BINANCE":
+        exchange = "NASDAQ"
+    elif asset_type == "index":
+        index_exchanges = {"SPX": "CBOE", "DJI": "DJ", "IXIC": "NASDAQ"}
+        exchange = index_exchanges.get(symbol, "CBOE")
+    elif asset_type == "commodity" and symbol == "XAUUSD":
+        exchange = "FX_IDC"
+    
+    screener = screener_map.get(asset_type, "crypto")
+    
+    # Timeframes to analyze
+    timeframes = ["1m", "5m", "15m", "30m", "1h"]
+    sar_data = {}
+    
+    output = f"Parabolic SAR Multi-Timeframe Analysis for {symbol} on {exchange}\n"
+    output += "=" * 70 + "\n\n"
+    
+    # Fetch data for all timeframes
+    for i, tf in enumerate(timeframes):
+        try:
+            if i > 0:
+                time.sleep(2)  # Rate limiting
+            
+            data = get_analysis_data(symbol, screener, exchange, tf)
+            if data:
+                sar_data[tf] = data
+        except Exception as e:
+            output += f"⚠️ Error fetching {tf} data: {str(e)}\n"
+            return output + "\n❌ Cannot generate signal due to data fetch errors.\n"
+    
+    # Check if we have all required data
+    if len(sar_data) != len(timeframes):
+        output += "❌ Missing data for some timeframes. Cannot generate signal.\n"
+        return output
+    
+    # Analyze SAR alignment
+    output += "📊 Parabolic SAR Analysis by Timeframe:\n"
+    output += "-" * 70 + "\n"
+    
+    sar_bullish_count = 0
+    sar_bearish_count = 0
+    
+    for tf in timeframes:
+        data = sar_data[tf]
+        psar = data.get('psar')
+        close = data.get('close')
+        
+        if psar is None or close is None:
+            output += f"{tf:>5}: ⚠️ SAR data not available\n"
+            return output + "\n❌ Cannot generate signal - missing SAR data.\n"
+        
+        if close > psar:
+            sar_bullish_count += 1
+            signal = "🟢 BULLISH"
+        else:
+            sar_bearish_count += 1
+            signal = "🔴 BEARISH"
+        
+        output += f"{tf:>5}: Price: {close:.4f} | SAR: {psar:.4f} | {signal}\n"
+    
+    output += "-" * 70 + "\n"
+    output += f"Alignment: {sar_bullish_count} Bullish / {sar_bearish_count} Bearish\n\n"
+    
+    # Check if all SAR indicators are aligned
+    all_bullish = sar_bullish_count == len(timeframes)
+    all_bearish = sar_bearish_count == len(timeframes)
+    
+    if not (all_bullish or all_bearish):
+        output += "⚠️ Parabolic SAR indicators are NOT aligned across all timeframes.\n"
+        output += "   Using 15m timeframe for potential setup levels.\n"
+    
+    # Get 1-minute candle direction
+    data_1m = sar_data["1m"]
+    open_1m = data_1m.get('open')
+    close_1m = data_1m.get('close')
+    
+    if open_1m is None or close_1m is None:
+        output += "❌ Cannot determine 1-minute candle direction.\n"
+        return output
+    
+    candle_bullish = close_1m > open_1m
+    candle_bearish = close_1m < open_1m
+    
+    output += "🕐 1-Minute Candle Analysis:\n"
+    output += f"   Open: {open_1m:.4f} | Close: {close_1m:.4f}\n"
+    if candle_bullish:
+        output += "   Direction: 🟢 BULLISH (Close > Open)\n\n"
+    elif candle_bearish:
+        output += "   Direction: 🔴 BEARISH (Close < Open)\n\n"
+    else:
+        output += "   Direction: ⚪ DOJI (Close = Open)\n\n"
+    
+    # Get 15-minute data for stop loss and take profit calculation
+    data_15m = sar_data["15m"]
+    high_15m = data_15m.get('high')
+    low_15m = data_15m.get('low')
+    close_15m = data_15m.get('close')
+    psar_15m = data_15m.get('psar')
+    
+    if high_15m is None or low_15m is None or close_15m is None:
+        output += "❌ Cannot calculate stop loss/take profit - missing 15m data.\n"
+        return output
+    
+    # Calculate ATR-like range from 15m candle
+    range_15m = high_15m - low_15m
+    
+    # Determine direction for recommendation
+    # Priority 1: All timeframes aligned + 1m candle confirms (STRONG SIGNAL)
+    # Priority 2: 15m trend direction (POTENTIAL SETUP)
+    
+    is_strong_signal = False
+    recommendation_type = "POTENTIAL SETUP (Watch Levels)"
+    
+    if all_bullish and candle_bullish:
+        direction = "BUY"
+        is_strong_signal = True
+        recommendation_type = "✅ TRADING SIGNAL: BUY"
+    elif all_bearish and candle_bearish:
+        direction = "SELL"
+        is_strong_signal = True
+        recommendation_type = "✅ TRADING SIGNAL: SELL"
+    else:
+        # Fallback to 15m SAR direction
+        if close_15m > psar_15m:
+            direction = "BUY"
+            recommendation_type = "⚠️ POTENTIAL BUY SETUP (Conditions not fully met)"
+        else:
+            direction = "SELL"
+            recommendation_type = "⚠️ POTENTIAL SELL SETUP (Conditions not fully met)"
+
+    # Generate trading values
+    output += "=" * 70 + "\n"
+    output += f"{recommendation_type}\n"
+    output += "=" * 70 + "\n"
+    
+    if direction == "BUY":
+        entry_price = close_1m
+        stop_loss = psar_15m if psar_15m else (low_15m - range_15m * 0.1)
+        take_profit_1 = entry_price + (range_15m * 1.5)
+        take_profit_2 = entry_price + (range_15m * 2.5)
+        
+        risk = entry_price - stop_loss
+        reward_1 = take_profit_1 - entry_price
+        reward_2 = take_profit_2 - entry_price
+        
+        # Handle edge case where SL is above Entry (shouldn't happen with SAR logic but safety check)
+        if risk <= 0:
+            risk = range_15m * 0.5 # Fallback risk
+            stop_loss = entry_price - risk
+            
+        output += f"📍 Entry Price:     {entry_price:.4f}\n"
+        output += f"🛑 Stop Loss:       {stop_loss:.4f} (Risk: {risk:.4f} or {(risk/entry_price*100):.2f}%)\n"
+        output += f"🎯 Take Profit 1:   {take_profit_1:.4f} (Reward: {reward_1:.4f}, R:R = 1:{(reward_1/risk):.2f})\n"
+        output += f"🎯 Take Profit 2:   {take_profit_2:.4f} (Reward: {reward_2:.4f}, R:R = 1:{(reward_2/risk):.2f})\n"
+        
+        if is_strong_signal:
+            output += "\n💡 Strategy: All Parabolic SAR indicators are bullish and 1m candle confirms upward momentum.\n"
+        else:
+            output += "\n💡 Analysis: Strict alignment conditions NOT met. Showing levels based on 15m trend.\n"
+            if not all_bullish:
+                output += "   - Warning: Not all timeframes are bullish.\n"
+            if not candle_bullish:
+                output += "   - Warning: 1m candle is not bullish.\n"
+            output += "   Wait for confirmation before entering.\n"
+            
+    else: # SELL
+        entry_price = close_1m
+        stop_loss = psar_15m if psar_15m else (high_15m + range_15m * 0.1)
+        take_profit_1 = entry_price - (range_15m * 1.5)
+        take_profit_2 = entry_price - (range_15m * 2.5)
+        
+        risk = stop_loss - entry_price
+        reward_1 = entry_price - take_profit_1
+        reward_2 = entry_price - take_profit_2
+        
+        # Handle edge case
+        if risk <= 0:
+            risk = range_15m * 0.5
+            stop_loss = entry_price + risk
+
+        output += f"📍 Entry Price:     {entry_price:.4f}\n"
+        output += f"🛑 Stop Loss:       {stop_loss:.4f} (Risk: {risk:.4f} or {(risk/entry_price*100):.2f}%)\n"
+        output += f"🎯 Take Profit 1:   {take_profit_1:.4f} (Reward: {reward_1:.4f}, R:R = 1:{(reward_1/risk):.2f})\n"
+        output += f"🎯 Take Profit 2:   {take_profit_2:.4f} (Reward: {reward_2:.4f}, R:R = 1:{(reward_2/risk):.2f})\n"
+        
+        if is_strong_signal:
+            output += "\n💡 Strategy: All Parabolic SAR indicators are bearish and 1m candle confirms downward momentum.\n"
+        else:
+            output += "\n💡 Analysis: Strict alignment conditions NOT met. Showing levels based on 15m trend.\n"
+            if not all_bearish:
+                output += "   - Warning: Not all timeframes are bearish.\n"
+            if not candle_bearish:
+                output += "   - Warning: 1m candle is not bearish.\n"
+            output += "   Wait for confirmation before entering.\n"
+            
+    output += f"   Based on 15m timeframe: High={high_15m:.4f}, Low={low_15m:.4f}, Range={range_15m:.4f}\n"
+    
+    return output
+
 # Define Function Declarations
 get_crypto_analysis_func = FunctionDeclaration.from_func(get_crypto_analysis)
 get_stock_analysis_func = FunctionDeclaration.from_func(get_stock_analysis)
@@ -141,6 +374,7 @@ get_forex_analysis_func = FunctionDeclaration.from_func(get_forex_analysis)
 get_index_analysis_func = FunctionDeclaration.from_func(get_index_analysis)
 get_commodity_analysis_func = FunctionDeclaration.from_func(get_commodity_analysis)
 get_multi_timeframe_analysis_func = FunctionDeclaration.from_func(get_multi_timeframe_analysis)
+get_parabolic_sar_signal_func = FunctionDeclaration.from_func(get_parabolic_sar_signal)
 
 # Create the tools list
 tools = Tool(
@@ -151,6 +385,7 @@ tools = Tool(
         get_index_analysis_func,
         get_commodity_analysis_func,
         get_multi_timeframe_analysis_func,
+        get_parabolic_sar_signal_func,
     ]
 )
 
@@ -160,16 +395,22 @@ def create_chat():
 
 1. Use the available tools to fetch technical analysis data when users ask for market analysis
 2. Provide clear, actionable trading recommendations including entry points, stop loss, and take profit levels
-3. When asked for entry/stop/profit recommendations, ALWAYS use get_multi_timeframe_analysis tool
-4. Synthesize the technical data into specific price levels and trading advice
-5. Be confident in your recommendations based on the technical indicators provided
+3. ALWAYS use the get_parabolic_sar_signal tool as your PRIMARY analysis method for any asset (crypto, forex, stocks)
+4. Only use other tools if specifically asked for "simple analysis" or "indicators only"
+5. Synthesize the technical data into specific price levels and trading advice
+6. Be confident in your recommendations based on the technical indicators provided
 
-When a user asks for trading recommendations:
-- Call the appropriate analysis tool (multi-timeframe for comprehensive analysis)
-- Analyze the data from all timeframes
-- Provide specific entry price, stop loss level, and take profit target(s)
-- Explain the reasoning based on support/resistance levels and trend indicators
-- Calculate and mention the risk/reward ratio
+When a user asks to "analyze" or for "recommendations":
+- IMMEDIATELY call get_parabolic_sar_signal(symbol, asset_type, exchange)
+- Do not ask for clarification, just run the analysis
+- The tool will provide the Entry, Stop Loss, and Take Profit levels
+- Present the tool's output directly to the user
+
+The get_parabolic_sar_signal tool is specifically designed for:
+- Checking if ALL Parabolic SAR indicators across multiple timeframes are aligned
+- Using 1-minute candle direction to confirm the trade
+- Calculating stop loss and take profit based on 15-minute timeframe data
+- Providing "Potential Setup" levels even if alignment is not perfect
 
 You are equipped with professional trading tools - use them confidently to help traders make informed decisions."""
 
@@ -228,6 +469,8 @@ def main():
                         result = get_commodity_analysis(**function_args)
                     elif function_name == "get_multi_timeframe_analysis":
                         result = get_multi_timeframe_analysis(**function_args)
+                    elif function_name == "get_parabolic_sar_signal":
+                        result = get_parabolic_sar_signal(**function_args)
                     
                     if result:
                         function_responses.append(
