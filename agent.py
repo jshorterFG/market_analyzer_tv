@@ -186,7 +186,7 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
     start_time = datetime.now()
     
     # Timeframes to analyze
-    timeframes = ["1m", "5m", "15m", "30m", "1h"]
+    timeframes = ["1m", "5m", "15m"]
     sar_data = {}
     
     output = f"Parabolic SAR Multi-Timeframe Analysis for {symbol} on {exchange}\n"
