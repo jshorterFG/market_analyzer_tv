@@ -1,4 +1,5 @@
 import vertexai
+import asyncio
 from vertexai.generative_models import GenerativeModel, Tool, FunctionDeclaration
 from server import get_analysis
 
@@ -11,15 +12,15 @@ vertexai.init(project=PROJECT_ID, location=LOCATION)
 # Define Tool Functions
 def get_crypto_analysis(symbol: str, exchange: str = "BINANCE", interval: str = "1d"):
     """Get technical analysis for a crypto pair."""
-    return get_analysis(symbol, "crypto", exchange, interval)
+    return asyncio.run(get_analysis(symbol, "crypto", exchange, interval))
 
 def get_stock_analysis(symbol: str, exchange: str = "NASDAQ", interval: str = "1d"):
     """Get technical analysis for a stock."""
-    return get_analysis(symbol, "america", exchange, interval)
+    return asyncio.run(get_analysis(symbol, "america", exchange, interval))
 
 def get_forex_analysis(symbol: str, exchange: str = "FX_IDC", interval: str = "1d"):
     """Get technical analysis for a forex pair."""
-    return get_analysis(symbol, "forex", exchange, interval)
+    return asyncio.run(get_analysis(symbol, "forex", exchange, interval))
 
 def get_index_analysis(symbol: str, exchange: str = "CBOE", interval: str = "1d"):
     """Get technical analysis for a US index.
@@ -39,7 +40,7 @@ def get_index_analysis(symbol: str, exchange: str = "CBOE", interval: str = "1d"
     if symbol in index_exchanges:
         exchange = index_exchanges[symbol]
     
-    return get_analysis(symbol, "america", exchange, interval)
+    return asyncio.run(get_analysis(symbol, "america", exchange, interval))
 
 def get_commodity_analysis(symbol: str, exchange: str = "TVC", interval: str = "1d"):
     """Get technical analysis for commodities (energy, metals).
@@ -50,9 +51,9 @@ def get_commodity_analysis(symbol: str, exchange: str = "TVC", interval: str = "
     """
     # Gold uses cfd screener
     if symbol == "XAUUSD":
-        return get_analysis(symbol, "cfd", "FX_IDC", interval)
+        return asyncio.run(get_analysis(symbol, "cfd", "FX_IDC", interval))
     
-    return get_analysis(symbol, "cfd", exchange, interval)
+    return asyncio.run(get_analysis(symbol, "cfd", exchange, interval))
 
 def get_multi_timeframe_analysis(symbol: str, asset_type: str = "crypto", exchange: str = "BINANCE") -> str:
     """
@@ -71,6 +72,7 @@ def get_multi_timeframe_analysis(symbol: str, asset_type: str = "crypto", exchan
         Detailed multi-timeframe analysis with trend direction, key levels, and trading signals.
     """
     import time
+    import asyncio
     from datetime import datetime, timedelta
     
     # Map asset types to screeners
@@ -108,7 +110,7 @@ def get_multi_timeframe_analysis(symbol: str, asset_type: str = "crypto", exchan
             if i > 0:
                 time.sleep(3)  # Wait 3 seconds between requests
             
-            analysis_text = get_analysis(symbol, screener, exchange, tf)
+            analysis_text = asyncio.run(get_analysis(symbol, screener, exchange, tf))
             results[tf] = analysis_text
         except Exception as e:
             results[tf] = f"Error: {str(e)}"
@@ -155,32 +157,50 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
         Trading signal with entry price, stop loss, and take profit levels, or no signal if SAR not aligned.
     """
     import time
+    import asyncio
     from datetime import datetime, timedelta
     from server import get_analysis_data  # We'll need raw data, not formatted text
     
-    # Map asset types to screeners
-    screener_map = {
-        "crypto": "crypto",
-        "stock": "america",
-        "forex": "forex",
-        "index": "america",
-        "commodity": "cfd"
+    # Supported symbols only
+    SUPPORTED_SYMBOLS = {
+        "SPX": {"asset_type": "index", "exchange": "CBOE", "screener": "america"},
+        "USOIL": {"asset_type": "commodity", "exchange": "TVC", "screener": "cfd"},
+        "XAUUSD": {"asset_type": "forex", "exchange": "FX_IDC", "screener": "cfd"},
+        "BTCUSDT": {"asset_type": "crypto", "exchange": "BINANCE", "screener": "crypto"},
+        "COIN": {"asset_type": "stock", "exchange": "NASDAQ", "screener": "america"},
+        "USDJPY": {"asset_type": "forex", "exchange": "FX_IDC", "screener": "forex"}
     }
     
-    # Set default exchanges
-    if asset_type == "crypto" and exchange == "BINANCE":
-        exchange = "BINANCE"
-    elif asset_type == "stock" and exchange == "BINANCE":
-        exchange = "NASDAQ"
-    elif asset_type == "index":
-        index_exchanges = {"SPX": "CBOE", "DJI": "DJ", "IXIC": "NASDAQ"}
-        exchange = index_exchanges.get(symbol, "CBOE")
-    elif asset_type == "forex" and exchange == "BINANCE":
-        exchange = "FX_IDC"
-    elif asset_type == "commodity" and symbol == "XAUUSD":
-        exchange = "FX_IDC"
+    # Validate symbol
+    if symbol not in SUPPORTED_SYMBOLS:
+        supported_list = ", ".join(SUPPORTED_SYMBOLS.keys())
+        return f"""
+⚠️ UNSUPPORTED SYMBOL: {symbol}
+
+This analyzer only supports the following symbols:
+  • SPX (S&P 500 Index)
+  • USOIL (Crude Oil)
+  • XAUUSD (Gold)
+  • BTCUSDT (Bitcoin)
+  • COIN (Coinbase Stock)
+  • USDJPY (USD/JPY Forex)
+
+Please analyze one of these symbols instead.
+
+======================================================================
+⚠️ DISCLAIMER
+======================================================================
+This analysis and all recommendations are provided for ENTERTAINMENT PURPOSES ONLY.
+This is NOT financial advice. Trading involves substantial risk of loss.
+Always conduct your own research and consult with a licensed financial advisor
+before making any trading decisions.
+"""
     
-    screener = screener_map.get(asset_type, "crypto")
+    # Get symbol configuration
+    symbol_config = SUPPORTED_SYMBOLS[symbol]
+    screener = symbol_config["screener"]
+    if exchange == "BINANCE" or exchange not in [symbol_config["exchange"]]:
+        exchange = symbol_config["exchange"]
     
     # Track analysis timing for rate limit estimation
     start_time = datetime.now()
@@ -198,7 +218,8 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
             if i > 0:
                 time.sleep(2)  # Rate limiting
             
-            data = get_analysis_data(symbol, screener, exchange, tf)
+            # Use asyncio.run to execute the async function
+            data = asyncio.run(get_analysis_data(symbol, screener, exchange, tf))
             if data:
                 sar_data[tf] = data
         except Exception as e:
@@ -217,6 +238,109 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
     sar_bullish_count = 0
     sar_bearish_count = 0
     
+    # First check if ANY data is from cache (rate limited)
+    has_cached_data = any(sar_data[tf].get('from_cache', False) for tf in timeframes if tf in sar_data)
+    
+    if has_cached_data:
+        # Automatically provide simple price analysis with cached data
+        output += f"\n{'='*70}\n"
+        cache_warning = sar_data.get(timeframes[0], {}).get('cache_warning')
+        if cache_warning:
+            output += f"{cache_warning}\n"
+        else:
+            output += "⚠️ Rate limit exceeded - using cached data.\n"
+        output += f"{'='*70}\n\n"
+        output += "📊 Simple Price Analysis (Cached Data)\n"
+        output += "-" * 70 + "\n\n"
+        
+        # Provide candle analysis for each available timeframe
+        for tf in timeframes:
+            if tf not in sar_data:
+                continue
+                
+            data = sar_data[tf]
+            open_price = data.get('open')
+            high_price = data.get('high')
+            low_price = data.get('low')
+            close_price = data.get('close')
+            
+            if not all([open_price, high_price, low_price, close_price]):
+                continue
+            
+            candle_range = high_price - low_price
+            candle_body = abs(close_price - open_price)
+            body_pct = (candle_body / candle_range * 100) if candle_range > 0 else 0
+            
+            output += f"{tf.upper()} Timeframe:\n"
+            output += f"  Open: {open_price:.4f} | High: {high_price:.4f} | Low: {low_price:.4f} | Close: {close_price:.4f}\n"
+            
+            if close_price > open_price:
+                output += f"  🟢 Bullish Candle - Body: {candle_body:.4f} ({body_pct:.1f}% of range)\n"
+            elif close_price < open_price:
+                output += f"  🔴 Bearish Candle - Body: {candle_body:.4f} ({body_pct:.1f}% of range)\n"
+            else:
+                output += f"  ⚪ Doji Candle - No directional bias\n"
+            output += "\n"
+        
+        # Provide basic recommendation based on 1m and 15m candles
+        data_1m = sar_data.get("1m", {})
+        data_15m = sar_data.get("15m", {})
+        
+        close_1m = data_1m.get('close')
+        open_1m = data_1m.get('open')
+        close_15m = data_15m.get('close')
+        open_15m = data_15m.get('open')
+        high_15m = data_15m.get('high')
+        low_15m = data_15m.get('low')
+        
+        if all([close_1m, open_1m, close_15m, open_15m, high_15m, low_15m]):
+            output += "=" * 70 + "\n"
+            output += "📍 Basic Price Levels (Cached Data)\n"
+            output += "=" * 70 + "\n"
+            
+            range_15m = high_15m - low_15m
+            bullish_1m = close_1m > open_1m
+            bullish_15m = close_15m > open_15m
+            
+            if bullish_1m and bullish_15m:
+                # Both bullish
+                entry = close_1m
+                stop = low_15m - (range_15m * 0.1)
+                tp1 = entry + (range_15m * 1.5)
+                tp2 = entry + (range_15m * 2.5)
+                
+                output += "Direction: 🟢 BULLISH (Watch Levels)\n"
+                output += f"Entry Zone:     {entry:.4f}\n"
+                output += f"Stop Loss:      {stop:.4f}\n"
+                output += f"Take Profit 1:  {tp1:.4f}\n"
+                output += f"Take Profit 2:  {tp2:.4f}\n"
+                
+            elif not bullish_1m and not bullish_15m:
+                # Both bearish
+                entry = close_1m
+                stop = high_15m + (range_15m * 0.1)
+                tp1 = entry - (range_15m * 1.5)
+                tp2 = entry - (range_15m * 2.5)
+                
+                output += "Direction: 🔴 BEARISH (Watch Levels)\n"
+                output += f"Entry Zone:     {entry:.4f}\n"
+                output += f"Stop Loss:      {stop:.4f}\n"
+                output += f"Take Profit 1:  {tp1:.4f}\n"
+                output += f"Take Profit 2:  {tp2:.4f}\n"
+            else:
+                # Mixed signals
+                output += "Direction: ⚪ MIXED SIGNALS\n"
+                output += f"Current Price:  {close_1m:.4f}\n"
+                output += f"15m High:       {high_15m:.4f}\n"
+                output += f"15m Low:        {low_15m:.4f}\n"
+                output += f"15m Range:      {range_15m:.4f}\n"
+            
+            output += "\n⚠️ Note: These levels are based on cached price data only.\n"
+            output += "   For complete SAR analysis with all indicators, please retry in a moment.\n"
+        
+        return output
+    
+    # Check if we have valid SAR data for non-cached responses
     for tf in timeframes:
         data = sar_data[tf]
         psar = data.get('psar')
@@ -224,7 +348,10 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
         
         if psar is None or close is None:
             output += f"{tf:>5}: ⚠️ SAR data not available\n"
-            return output + "\n❌ Cannot generate signal - missing SAR data.\n"
+            output += "\n❌ Cannot generate signal - missing SAR data.\n"
+            output += "   This may indicate an API issue or unsupported timeframe.\n"
+            output += "   Please try again or use a different analysis tool.\n"
+            return output
         
         if close > psar:
             sar_bullish_count += 1
@@ -386,23 +513,99 @@ def get_parabolic_sar_signal(symbol: str, asset_type: str = "crypto", exchange: 
                 output += "   - Warning: 1m candle is not bearish.\n"
             output += "   Wait for confirmation before entering.\n"
             
-    output += f"   Based on 15m timeframe: High={high_15m:.4f}, Low={low_15m:.4f}, Range={range_15m:.4f}\n"
+    output += f"   Based on 15m timeframe: High={high_15m:.4f}, Low={low_15m:.4f}, Range={range_15m:.4f}\n\n"
+    
+    # Add Order Recommendations Section
+    output += "=" * 70 + "\n"
+    output += "📋 ORDER RECOMMENDATIONS\n"
+    output += "=" * 70 + "\n\n"
+    
+    if direction == "BUY":
+        # Immediate Orders
+        output += "🟢 IMMEDIATE ORDERS (Market Execution):\n"
+        output += f"   Market Buy @ {entry_price:.4f}\n"
+        output += f"   Set Stop Loss: {stop_loss:.4f}\n"
+        output += f"   Set Take Profit 1: {take_profit_1:.4f} (Partial close)\n"
+        output += f"   Set Take Profit 2: {take_profit_2:.4f} (Full close)\n\n"
+        
+        # Pending Orders  
+        pullback_entry = entry_price - (range_15m * 0.3)
+        pullback_sl = pullback_entry - (range_15m * 0.5)
+        pullback_tp1 = pullback_entry + (range_15m * 1.5)
+        pullback_tp2 = pullback_entry + (range_15m * 2.5)
+        
+        breakout_entry = high_15m + (range_15m * 0.1)
+        breakout_sl = high_15m - (range_15m * 0.2)
+        breakout_tp1 = breakout_entry + (range_15m * 1.5)
+        breakout_tp2 = breakout_entry + (range_15m * 2.5)
+        
+        output += "⏸️ PENDING ORDERS (If Retracement):\n"
+        output += f"   Buy Limit @ {pullback_entry:.4f}\n"
+        output += f"   Set Stop Loss: {pullback_sl:.4f}\n"
+        output += f"   Set Take Profit 1: {pullback_tp1:.4f}\n"
+        output += f"   Set Take Profit 2: {pullback_tp2:.4f}\n\n"
+        
+        output += "⏸️ PENDING ORDERS (If Breakout):\n"
+        output += f"   Buy Stop @ {breakout_entry:.4f}\n"
+        output += f"   Set Stop Loss: {breakout_sl:.4f}\n"
+        output += f"   Set Take Profit 1: {breakout_tp1:.4f}\n"
+        output += f"   Set Take Profit 2: {breakout_tp2:.4f}\n\n"
+        
+    else: # SELL
+        # Immediate Orders
+        output += "🔴 IMMEDIATE ORDERS (Market Execution):\n"
+        output += f"   Market Sell @ {entry_price:.4f}\n"
+        output += f"   Set Stop Loss: {stop_loss:.4f}\n"
+        output += f"   Set Take Profit 1: {take_profit_1:.4f} (Partial close)\n"
+        output += f"   Set Take Profit 2: {take_profit_2:.4f} (Full close)\n\n"
+        
+        # Pending Orders
+        pullback_entry = entry_price + (range_15m * 0.3)
+        pullback_sl = pullback_entry + (range_15m * 0.5)
+        pullback_tp1 = pullback_entry - (range_15m * 1.5)
+        pullback_tp2 = pullback_entry - (range_15m * 2.5)
+        
+        breakout_entry = low_15m - (range_15m * 0.1)
+        breakout_sl = low_15m + (range_15m * 0.2)
+        breakout_tp1 = breakout_entry - (range_15m * 1.5)
+        breakout_tp2 = breakout_entry - (range_15m * 2.5)
+        
+        output += "⏸️ PENDING ORDERS (If Retracement):\n"
+        output += f"   Sell Limit @ {pullback_entry:.4f}\n"
+        output += f"   Set Stop Loss: {pullback_sl:.4f}\n"
+        output += f"   Set Take Profit 1: {pullback_tp1:.4f}\n"
+        output += f"   Set Take Profit 2: {pullback_tp2:.4f}\n\n"
+        
+        output += "⏸️ PENDING ORDERS (If Breakout):\n"
+        output += f"   Sell Stop @ {breakout_entry:.4f}\n"
+        output += f"   Set Stop Loss: {breakout_sl:.4f}\n"
+        output += f"   Set Take Profit 1: {breakout_tp1:.4f}\n"
+        output += f"   Set Take Profit 2: {breakout_tp2:.4f}\n"
     
     # Calculate rate limit information
     end_time = datetime.now()
     elapsed_time = (end_time - start_time).total_seconds()
     
-    # We made 5 API calls with 2-second delays between them
+    # We made API calls with delays between them
     # Recommend waiting ~2 minutes between analyses to avoid rate limits
     api_calls_made = len(timeframes)
     wait_time_seconds = 120  # 2 minutes recommended wait
     next_analysis_time = end_time + timedelta(seconds=wait_time_seconds)
     
-    output += f"\n⏱️ RATE LIMIT INFO:\n"
+    output += f"\n\n⏱️ RATE LIMIT INFO:\n"
     output += f"   Analysis completed in {elapsed_time:.1f} seconds\n"
     output += f"   API calls made: {api_calls_made}\n"
     output += f"   ⚠️ Wait until {next_analysis_time.strftime('%H:%M:%S')} (~{wait_time_seconds//60} minutes) before next analysis\n"
-    output += f"   Single timeframe requests can be made immediately.\n"
+    output += f"   Single timeframe requests can be made immediately.\n\n"
+    
+    # Financial Disclaimer
+    output += "=" * 70 + "\n"
+    output += "⚠️ DISCLAIMER\n"
+    output += "=" * 70 + "\n"
+    output += "This analysis and all recommendations are provided for ENTERTAINMENT PURPOSES ONLY.\n"
+    output += "This is NOT financial advice. Trading involves substantial risk of loss.\n"
+    output += "Always conduct your own research and consult with a licensed financial advisor\n"
+    output += "before making any trading decisions.\n"
     
     return output
 

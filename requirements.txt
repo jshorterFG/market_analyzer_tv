@@ -1,4 +1,6 @@
 mcp==1.0.0
 tradingview-ta
 google-cloud-aiplatform
+google-cloud-firestore
+google-cloud-storage
 streamlit

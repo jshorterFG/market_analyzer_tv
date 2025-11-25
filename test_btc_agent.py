@@ -3,12 +3,6 @@ from vertexai.generative_models import GenerativeModel, Tool, FunctionDeclaratio
 from server import get_analysis
 import sys
 
-# Initialize Vertex AI
-PROJECT_ID = "sp500trading"
-LOCATION = "us-central1"
-
-vertexai.init(project=PROJECT_ID, location=LOCATION)
-
 # Define Tool Functions
 def get_crypto_analysis(symbol: str, exchange: str = "BINANCE", interval: str = "1d"):
     """Get technical analysis for a crypto pair."""
@@ -22,27 +16,33 @@ def get_forex_analysis(symbol: str, exchange: str = "FX_IDC", interval: str = "1
     """Get technical analysis for a forex pair."""
     return get_analysis(symbol, "forex", exchange, interval)
 
-# Define Function Declarations
-get_crypto_analysis_func = FunctionDeclaration.from_func(get_crypto_analysis)
-get_stock_analysis_func = FunctionDeclaration.from_func(get_stock_analysis)
-get_forex_analysis_func = FunctionDeclaration.from_func(get_forex_analysis)
-
-# Create the tools list
-tools = Tool(
-    function_declarations=[
-        get_crypto_analysis_func,
-        get_stock_analysis_func,
-        get_forex_analysis_func,
-    ]
-)
-
-# Initialize the model with tools
-model = GenerativeModel(
-    "gemini-2.0-flash",
-    tools=[tools],
-)
-
 def run_test():
+    # Initialize Vertex AI
+    PROJECT_ID = "sp500trading"
+    LOCATION = "us-central1"
+    
+    vertexai.init(project=PROJECT_ID, location=LOCATION)
+
+    # Define Function Declarations
+    get_crypto_analysis_func = FunctionDeclaration.from_func(get_crypto_analysis)
+    get_stock_analysis_func = FunctionDeclaration.from_func(get_stock_analysis)
+    get_forex_analysis_func = FunctionDeclaration.from_func(get_forex_analysis)
+
+    # Create the tools list
+    tools = Tool(
+        function_declarations=[
+            get_crypto_analysis_func,
+            get_stock_analysis_func,
+            get_forex_analysis_func,
+        ]
+    )
+
+    # Initialize the model with tools
+    model = GenerativeModel(
+        "gemini-2.0-flash",
+        tools=[tools],
+    )
+
     chat = model.start_chat()
     prompt = "Analyze BTCUSDT using 1 minute, 5 minute, and 15 minute time frames to determine buy, sell, or hold."
     

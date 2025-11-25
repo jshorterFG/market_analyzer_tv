@@ -32,22 +32,22 @@ def main():
     # Add example prompts
     with st.expander("💡 Example Prompts", expanded=False):
         st.markdown("""
-        **Multi-Timeframe Analysis:**
-        - `Analyze BTCUSDT and give me entry, stop loss, and take profit recommendations`
-        - `Analyze US30USD and give me a trade setup`
-        - `Give me trading signals for SPX`
+        **Get Trading Recommendations:**
+        - `Analyze SPX and give me entry, stop loss, and take profit recommendations`
+        - `Analyze BTCUSDT and give me a trade setup`
+        - `Give me trading signals for XAUUSD`
+        - `Analyze USDJPY`
         
-        **Single Timeframe:**
-        - `Analyze TSLA on the 1h timeframe`
-        - `What's the outlook for XAUUSD (Gold)?`
-        - `Check DJI for me`
+        **Supported Symbols ONLY:**
+        - 📊 **SPX** - S&P 500 Index
+        - 🛢️ **USOIL** - Crude Oil
+        - 🥇 **XAUUSD** - Gold
+        - ₿ **BTCUSDT** - Bitcoin
+        - 💰 **COIN** - Coinbase Stock
+        - 💱 **USDJPY** - USD/JPY Forex
         
-        **Supported Assets:**
-        - Crypto: BTCUSDT, ETHUSDT, etc.
-        - Stocks: TSLA, AAPL, etc.
-        - Indexes: SPX, DJI, IXIC
-        - Forex: EURUSD, GBPUSD, US30USD, etc.
-        - Commodities: XAUUSD (Gold)
+        ⚠️ **Note:** Analysis limited to these 6 symbols for optimal accuracy.
+        
         """)
 
     # Initialize Chat Session

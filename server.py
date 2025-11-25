@@ -1,8 +1,20 @@
 import asyncio
+import logging
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, ImageContent, EmbeddedResource
 from tradingview_ta import TA_Handler, Interval, Exchange
+
+# Import caching system
+from data_fetcher import data_fetcher
+from rate_limiter import rate_limiter
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Initialize Server
 app = Server("tradingview-analyzer")
@@ -54,78 +66,57 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent | EmbeddedResource]:
     if name == "get_crypto_analysis":
-        return [TextContent(type="text", text=get_analysis(arguments["symbol"], "crypto", arguments.get("exchange", "BINANCE"), arguments.get("interval", "1d")))]
+        result = await get_analysis(arguments["symbol"], "crypto", arguments.get("exchange", "BINANCE"), arguments.get("interval", "1d"))
+        return [TextContent(type="text", text=result)]
     elif name == "get_stock_analysis":
-        return [TextContent(type="text", text=get_analysis(arguments["symbol"], "america", arguments.get("exchange", "NASDAQ"), arguments.get("interval", "1d")))]
+        result = await get_analysis(arguments["symbol"], "america", arguments.get("exchange", "NASDAQ"), arguments.get("interval", "1d"))
+        return [TextContent(type="text", text=result)]
     elif name == "get_forex_analysis":
-        return [TextContent(type="text", text=get_analysis(arguments["symbol"], "forex", arguments.get("exchange", "FX_IDC"), arguments.get("interval", "1d")))]
+        result = await get_analysis(arguments["symbol"], "forex", arguments.get("exchange", "FX_IDC"), arguments.get("interval", "1d"))
+        return [TextContent(type="text", text=result)]
     else:
         raise ValueError(f"Unknown tool: {name}")
 
-def get_analysis_data(symbol: str, screener: str, exchange: str, interval: str) -> dict:
+async def get_analysis_data(symbol: str, screener: str, exchange: str, interval: str) -> dict:
     """
     Get raw analysis data as a dictionary for programmatic use.
     Returns key indicators including OHLC, Parabolic SAR, etc.
+    Now uses caching to reduce API calls.
     """
     try:
-        # Map interval string to tradingview_ta Interval constant
-        interval_map = {
-            "1m": Interval.INTERVAL_1_MINUTE,
-            "5m": Interval.INTERVAL_5_MINUTES,
-            "15m": Interval.INTERVAL_15_MINUTES,
-            "30m": Interval.INTERVAL_30_MINUTES,
-            "1h": Interval.INTERVAL_1_HOUR,
-            "4h": Interval.INTERVAL_4_HOURS,
-            "1d": Interval.INTERVAL_1_DAY,
-            "1W": Interval.INTERVAL_1_WEEK,
-            "1M": Interval.INTERVAL_1_MONTH,
-        }
-        
-        tv_interval = interval_map.get(interval, Interval.INTERVAL_1_DAY)
-
-        handler = TA_Handler(
-            symbol=symbol,
-            screener=screener,
-            exchange=exchange,
-            interval=tv_interval
-        )
-        
-        analysis = handler.get_analysis()
-        
-        # Return raw data as dictionary
-        result = {
-            'open': analysis.indicators.get('open'),
-            'close': analysis.indicators.get('close'),
-            'high': analysis.indicators.get('high'),
-            'low': analysis.indicators.get('low'),
-            'psar': analysis.indicators.get('P.SAR'),
-            'rsi': analysis.indicators.get('RSI'),
-            'macd': analysis.indicators.get('MACD.macd'),
-            'ema20': analysis.indicators.get('EMA20'),
-            'sma50': analysis.indicators.get('SMA50'),
-            'sma200': analysis.indicators.get('SMA200'),
-            'adx': analysis.indicators.get('ADX'),
-            'fi': analysis.indicators.get('FI'),
-            'recommendation': analysis.summary.get('RECOMMENDATION'),
-        }
-        
-        # Calculate Force Index if missing (FI = Price Change * Volume)
-        if result['fi'] is None:
-            close = result['close']
-            change = analysis.indicators.get('change')
-            volume = analysis.indicators.get('volume')
-            
-            if close and change is not None and volume:
-                # Change is usually percentage in TV analysis
-                price_change = close * change / 100
-                result['fi'] = price_change * volume
-                
+        # Use the cached data fetcher
+        result = await data_fetcher.get_analysis_with_cache(symbol, screener, exchange, interval)
         return result
     except Exception as e:
+        logger.error(f"Error in get_analysis_data: {e}")
         return {}
 
-def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> str:
+async def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> str:
+    """
+    Get formatted analysis string with caching and rate limiting.
+    """
     try:
+        # Get data with cache fallback support
+        data = await get_analysis_data(symbol, screener, exchange, interval)
+        
+        # Check if this is cached data due to rate limiting
+        cache_warning = data.get('cache_warning')
+        from_cache = data.get('from_cache', False)
+        
+        # Display cache warning prominently if present
+        output = ""
+        if cache_warning:
+            output += f"\n{'='*60}\n"
+            output += f"{cache_warning}\n"
+            output += f"{'='*60}\n\n"
+        elif from_cache and 'error' in data:
+            # No cached data available
+            return f"Error: {data.get('error', 'Unknown error occurred')}\n"
+        
+        # If we have an error and no cached data, return the error
+        if 'error' in data and not (data.get('open') or data.get('close')):
+            return f"Error: {data['error']}\n"
+        
         # Map interval string to tradingview_ta Interval constant
         interval_map = {
             "1m": Interval.INTERVAL_1_MINUTE,
@@ -141,14 +132,54 @@ def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> st
         
         tv_interval = interval_map.get(interval, Interval.INTERVAL_1_DAY)
 
-        handler = TA_Handler(
-            symbol=symbol,
-            screener=screener,
-            exchange=exchange,
-            interval=tv_interval
-        )
+        # For cached data, we only have basic OHLC, so create simplified output
+        if from_cache:
+            output += f"Analysis for {symbol} on {exchange} ({interval}) [FROM CACHE]:\n\n"
+            output += "Basic Price Data:\n"
+            output += f"Open: {data.get('open', 0):.2f}, "
+            output += f"Close: {data.get('close', 0):.2f}, "
+            output += f"High: {data.get('high', 0):.2f}, "
+            output += f"Low: {data.get('low', 0):.2f}\n"
+            
+            # Add candle direction analysis
+            open_price = data.get('open', 0)
+            close_price = data.get('close', 0)
+            high_price = data.get('high', 0)
+            low_price = data.get('low', 0)
+            
+            output += "\nCandle Analysis:\n"
+            if close_price > open_price:
+                candle_body = close_price - open_price
+                output += f"🟢 Bullish Candle (Close > Open)\n"
+            elif close_price < open_price:
+                candle_body = open_price - close_price
+                output += f"🔴 Bearish Candle (Close < Open)\n"
+            else:
+                candle_body = 0
+                output += f"⚪ Doji Candle (Close = Open)\n"
+            
+            if candle_body > 0:
+                candle_range = high_price - low_price
+                body_percentage = (candle_body / candle_range * 100) if candle_range > 0 else 0
+                output += f"Body size: {candle_body:.2f} ({body_percentage:.1f}% of range)\n"
+            
+            output += "\n⚠️ Full technical indicators unavailable due to rate limiting.\n"
+            output += "Please wait a moment and try again for complete analysis.\n"
+            
+            logger.info(f"Returned cached analysis for {symbol} {interval}")
+            return output
+
+        # Fetch full analysis with indicators
+        async def fetch_analysis():
+            handler = TA_Handler(
+                symbol=symbol,
+                screener=screener,
+                exchange=exchange,
+                interval=tv_interval
+            )
+            return handler.get_analysis()
         
-        analysis = handler.get_analysis()
+        analysis = await rate_limiter.execute(fetch_analysis)
         
         # Get candle data
         open_price = analysis.indicators.get('open', 0)
@@ -157,7 +188,7 @@ def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> st
         low_price = analysis.indicators.get('low', 0)
         
         # Format the output
-        output = f"Analysis for {symbol} on {exchange} ({interval}):\n"
+        output += f"Analysis for {symbol} on {exchange} ({interval}):\n"
         output += f"Recommendation: {analysis.summary['RECOMMENDATION']}\n"
         output += f"Buy: {analysis.summary['BUY']}, Sell: {analysis.summary['SELL']}, Neutral: {analysis.summary['NEUTRAL']}\n\n"
         
@@ -273,12 +304,15 @@ def get_analysis(symbol: str, screener: str, exchange: str, interval: str) -> st
         elif bearish_signals > bullish_signals:
             output += f"🔴 BEARISH ({bearish_signals} bearish vs {bullish_signals} bullish signals)\n"
         else:
-            output += f"⚪ NEUTRAL ({bullish_signals} bullish vs {bearish_signals} bearish signals)\n"
-            
+            output += f"⚪ NEUTRAL ({bullish_signals} bullish vs {bearish_signals} bullish signals)\n"
+        
+        logger.info(f"Analysis completed for {symbol} {interval}")
         return output
 
     except Exception as e:
-        return f"Error fetching analysis for {symbol}: {str(e)}"
+        error_msg = f"Error fetching analysis for {symbol}: {str(e)}"
+        logger.error(error_msg)
+        return error_msg
 
 async def main():
     async with stdio_server() as (read_stream, write_stream):
